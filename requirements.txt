@@ -1,3 +1,2 @@
 # Requirements for CosyVoice PyWorker
-# Note: vastai-sdk is installed by the start_server.sh bootstrap script
-# Only add additional dependencies needed by worker.py here
+vastai-sdk
