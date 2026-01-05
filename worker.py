@@ -7,6 +7,25 @@ It configures the PyWorker proxy to communicate with our CosyVoice model server.
 """
 
 import os
+
+# CRITICAL: Set env vars BEFORE importing vastai SDK
+# The SDK checks for these at import time
+if "WORKER_PORT" not in os.environ:
+    # Use port 8000 if VAST_TCP_PORT_8000 exists (standard Vast.ai mapping)
+    if os.environ.get("VAST_TCP_PORT_8000"):
+        os.environ["WORKER_PORT"] = "8000"
+    elif os.environ.get("VAST_TCP_PORT_18000"):
+        os.environ["WORKER_PORT"] = "18000"
+    else:
+        os.environ["WORKER_PORT"] = "8000"  # Default
+
+if "REPORT_ADDR" not in os.environ:
+    os.environ["REPORT_ADDR"] = "https://run.vast.ai"
+
+if "CONTAINER_ID" not in os.environ:
+    os.environ["CONTAINER_ID"] = os.environ.get("VAST_CONTAINERLABEL", "cosyvoice")
+
+# NOW import the SDK (after env vars are set)
 from vastai import (
     Worker,
     WorkerConfig,
