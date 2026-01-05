@@ -1,7 +1,7 @@
 #!/bin/bash
 # CosyVoice Launcher for Vast.ai Serverless
 # This script starts the model server and PyWorker
-# IMPORTANT: Don't override vars that Vast.ai infrastructure provides
+# IMPORTANT: Set WORKER_PORT to match an existing VAST_TCP_PORT_xxx
 
 echo "=== CosyVoice Launcher ===" | tee -a /root/debug.log
 date | tee -a /root/debug.log
@@ -25,7 +25,7 @@ echo "Starting CosyVoice model server..." | tee -a /root/debug.log
 cd /app
 python /app/worker_serverless.py > "$MODEL_LOG_FILE" 2>&1 &
 MODEL_PID=$!
-echo "Model server started with PID: $MODEL_PID" | tee -a /root/debug.log
+echo "Model server PID: $MODEL_PID" | tee -a /root/debug.log
 
 # Give the model a moment to start writing logs
 sleep 2
@@ -42,9 +42,20 @@ if [ -z "$CONTAINER_ID" ]; then
     echo "Set CONTAINER_ID=$CONTAINER_ID (default)" | tee -a /root/debug.log
 fi
 
-# DON'T set WORKER_PORT - let infrastructure handle it
-# The SDK looks for VAST_TCP_PORT_${WORKER_PORT}
-# If we set WORKER_PORT=3000, it needs VAST_TCP_PORT_3000 to exist
+# WORKER_PORT - MUST match an existing VAST_TCP_PORT_xxx
+# The SDK looks for VAST_TCP_PORT_{WORKER_PORT} to get the external port
+# Check what ports are available and use one that exists
+if [ -n "$VAST_TCP_PORT_8000" ]; then
+    export WORKER_PORT=8000
+    echo "Using WORKER_PORT=8000 (VAST_TCP_PORT_8000=$VAST_TCP_PORT_8000)" | tee -a /root/debug.log
+elif [ -n "$VAST_TCP_PORT_18000" ]; then
+    export WORKER_PORT=18000
+    echo "Using WORKER_PORT=18000 (VAST_TCP_PORT_18000=$VAST_TCP_PORT_18000)" | tee -a /root/debug.log
+else
+    # Fall back to 8000 and hope for the best
+    export WORKER_PORT=8000
+    echo "WARNING: No VAST_TCP_PORT_xxx found, using WORKER_PORT=8000" | tee -a /root/debug.log
+fi
 
 # Clone our pyworker config
 echo "Setting up PyWorker config..." | tee -a /root/debug.log
