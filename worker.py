@@ -3,29 +3,17 @@
 CosyVoice PyWorker configuration for Vast.ai Serverless.
 
 This file is loaded by vast-pyworker via PYWORKER_REPO.
-It configures the PyWorker proxy to communicate with our CosyVoice model server.
+It configures the PyWorker proxy to communicate with our CosyVoice FastAPI server.
 """
 
 import os
 
-# CRITICAL: Set env vars BEFORE importing vastai SDK
-# The SDK checks for these at import time
-if "WORKER_PORT" not in os.environ:
-    # Use port 8000 if VAST_TCP_PORT_8000 exists (standard Vast.ai mapping)
-    if os.environ.get("VAST_TCP_PORT_8000"):
-        os.environ["WORKER_PORT"] = "8000"
-    elif os.environ.get("VAST_TCP_PORT_18000"):
-        os.environ["WORKER_PORT"] = "18000"
-    else:
-        os.environ["WORKER_PORT"] = "8000"  # Default
+# Model server configuration
+# CosyVoice FastAPI server runs on port 50000
+MODEL_SERVER_URL = "http://127.0.0.1"
+MODEL_SERVER_PORT = int(os.environ.get("MODEL_SERVER_PORT", "50000"))
+MODEL_LOG_FILE = os.environ.get("MODEL_LOG_FILE", "/var/log/portal/cosyvoice.log")
 
-if "REPORT_ADDR" not in os.environ:
-    os.environ["REPORT_ADDR"] = "https://run.vast.ai"
-
-if "CONTAINER_ID" not in os.environ:
-    os.environ["CONTAINER_ID"] = os.environ.get("VAST_CONTAINERLABEL", "cosyvoice")
-
-# NOW import the SDK (after env vars are set)
 from vastai import (
     Worker,
     WorkerConfig,
@@ -34,18 +22,12 @@ from vastai import (
     BenchmarkConfig,
 )
 
-# Model server configuration
-# The model server runs on port 18000 inside the container
-MODEL_SERVER_URL = "http://127.0.0.1"
-MODEL_SERVER_PORT = int(os.environ.get("MODEL_SERVER_PORT", "18000"))
-MODEL_LOG_FILE = os.environ.get("MODEL_LOG_FILE", "/var/log/cosyvoice/server.log")
-
 
 def benchmark_generator():
     """Generate a benchmark request for performance testing."""
     return {
-        "text": "Hello, this is a test of the text to speech system.",
-        "speaker": "english_female"
+        "tts_text": "Hello, this is a test of the text to speech system.",
+        "spk_id": "中文女"
     }
 
 
@@ -54,9 +36,8 @@ def workload_calculator(payload: dict) -> float:
     Calculate workload based on text length.
     Longer text = more compute time.
     """
-    text = payload.get("text", "")
-    # Rough estimate: 1 workload unit per 100 characters
-    return max(1.0, len(text) / 100.0)
+    text = payload.get("tts_text", "")
+    return max(1.0, float(len(text)))
 
 
 # Build the worker configuration
@@ -66,41 +47,25 @@ worker_config = WorkerConfig(
     model_log_file=MODEL_LOG_FILE,
 
     handlers=[
-        # Main TTS generation endpoint - has benchmark config
+        # SFT inference endpoint (preset voices)
         HandlerConfig(
-            route="/generate",
+            route="/inference_sft",
             allow_parallel_requests=False,  # TTS is sequential on GPU
             max_queue_time=120.0,  # 2 minutes max wait
             workload_calculator=workload_calculator,
             benchmark_config=BenchmarkConfig(
                 generator=benchmark_generator,
-                runs=2,  # Run 2 benchmark requests
-                concurrency=1,  # One at a time
+                runs=2,
+                concurrency=1,
             ),
-        ),
-        # Health check endpoint
-        HandlerConfig(
-            route="/health",
-            allow_parallel_requests=True,
-        ),
-        # Readiness check endpoint
-        HandlerConfig(
-            route="/ready",
-            allow_parallel_requests=True,
-        ),
-        # Speaker list endpoint
-        HandlerConfig(
-            route="/speakers",
-            allow_parallel_requests=True,
         ),
     ],
 
     # Log-based readiness detection
-    # PyWorker watches the model log file for these patterns
     log_action_config=LogActionConfig(
-        # Pattern that indicates model is ready (PREFIX-BASED matching!)
-        # This line must appear at the START of a log line
-        on_load=["CosyVoice model loaded successfully"],
+        # Pattern that indicates model is ready
+        # CosyVoice FastAPI server logs this when uvicorn starts
+        on_load=["Uvicorn running on"],
 
         # Patterns that indicate errors
         on_error=[
@@ -108,13 +73,13 @@ worker_config = WorkerConfig(
             "Traceback (most recent call last):",
             "CUDA out of memory",
             "Exception:",
+            "ERROR",
         ],
 
-        # Informational patterns (for logging only)
+        # Informational patterns
         on_info=[
             "Loading model",
-            "Downloading",
-            "Starting",
+            "INFO:",
         ],
     ),
 )
